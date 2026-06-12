@@ -8,7 +8,7 @@ Every 311 call in San Francisco if you really wanted to see it I guess lul
 
 **Eight distinct categoories** compete for height in every tower though it's more like golf where more points are bad seriously sort the tenderloin it's crazy. Graffiti and street cleaning, encampments and abandoned vehicles, noise complaints and tree issues. Plus a dedicated poop bucket sourced from a field the city buries inside `service_details`
 
-**Click the legend.** Toggle any signal on or off and the whole map recomputes in real time. Towers shrink, colors shift, and the skyline reorganizes itself around what you actually care about. Watching a bucket of 5,700 human waste reports materialize out of the Street Cleaning category is both hilarious and a testament to the horrors of houselessness that affected so many in the wake of the opioid crisis
+**Click the legend.** Toggle any signal on or off and the whole map recomputes in real time. Towers shrink, colors shift, and the skyline reorganizes itself around what you actually care about like those idiots at cluely who are both pathetic AND annoyying. Watching a bucket of 5,700 human waste reports materialize out of the Street Cleaning category is both hilarious and a testament to the horrors of houselessness that affected so many in the wake of the opioid crisis
 
 **Pick a neighborhood.** The dropdown isolates a single district. Every tower outside it fades to zero. The numbers at the bottom update to match. You know you're just gonna filter for the Tenderloin aren't you 
 
