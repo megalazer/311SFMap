@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SF 311 Signal Towers Map</title>
+  
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  
+  <!-- deck.gl -->
+  <script src="https://unpkg.com/deck.gl@9.3.4/dist.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      background-color: #050608;
+      color: #ffffff;
+      user-select: none;
+    }
+
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .panel {
+      background: rgba(10, 12, 18, 0.82);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 16px;
+      border-radius: 6px;
+      color: #ffffff;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-header {
+      font-size: 11px;
+      font-variant: small-caps;
+      color: #00ffff;
+      margin-top: 0;
+      margin-bottom: 12px;
+      letter-spacing: 1.5px;
+      font-weight: bold;
+    }
+
+    #legend-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      width: 280px;
+      pointer-events: auto;
+    }
+
+    #slider-panel {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      width: 500px;
+      max-width: 90%;
+      pointer-events: auto;
+    }
+
+    /* Slider styling */
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      background: transparent;
+    }
+
+    input[type=range]:focus {
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      height: 14px;
+      width: 14px;
+      border-radius: 50%;
+      background: #00ffff;
+      cursor: pointer;
+      -webkit-appearance: none;
+      margin-top: -5px;
+      box-shadow: 0 0 8px rgba(0, 255, 255, 0.8);
+      transition: transform 0.1s ease;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    /* Button styling */
+    #play-button {
+      background: rgba(0, 255, 255, 0.1);
+      border: 1px solid rgba(0, 255, 255, 0.3);
+      color: #00ffff;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 6px 16px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      min-width: 54px;
+      text-align: center;
+    }
+
+    #play-button:hover {
+      background: rgba(0, 255, 255, 0.2);
+      border-color: #00ffff;
+      box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+    }
+    #nbhd-filter:focus {
+      border-color: #00ffff !important;
+      box-shadow: 0 0 6px rgba(0, 255, 255, 0.3);
+    }
+    /* Custom Neighborhood Label Markers */
+    .neighborhood-label {
+      pointer-events: none;
+      text-align: center;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      white-space: nowrap;
+    }
+
+    .neighborhood-name {
+      color: #ffffff;
+      font-weight: bold;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 3px #000000, 0 0 5px #000000, 0 0 8px #000000;
+    }
+
+    .neighborhood-signal {
+      font-size: 8px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      margin-top: 1px;
+      text-shadow: 0 0 3px #000000, 0 0 5px #000000, 0 0 8px #000000;
+    }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(10, 12, 18, 0.92);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      transition: opacity 0.5s ease;
+    }
+
+    .loading-title {
+      font-size: 20px;
+      color: #00ffff;
+      font-variant: small-caps;
+      letter-spacing: 3px;
+      margin-bottom: 15px;
+      font-weight: bold;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    }
+
+    .loading-sub {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      max-width: 600px;
+      text-align: center;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay">
+    <div class="loading-title" id="loading-status">PULLING 311 SIGNAL…</div>
+    <div class="loading-sub" id="loading-details">Initializing dark map environment...</div>
+  </div>
+
+  <!-- Legend -->
+  <!-- Legend -->
+  <div class="panel" id="legend-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div class="panel-header" style="margin: 0;">WHAT EACH TOWER IS MADE OF</div>
+      <button id="reset-buckets-btn" style="background: transparent; border: none; color: #00ffff; font-family: inherit; font-size: 10px; cursor: pointer; padding: 0; font-variant: small-caps; letter-spacing: 1px; font-weight: bold; transition: opacity 0.15s ease;">ALL</button>
+    </div>
+    <div id="legend-items"></div>
+    <div style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+      <select id="nbhd-filter" style="width: 100%; background: #0c0e14; border: 1px solid rgba(255,255,255,0.15); color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 6px; border-radius: 4px; outline: none; cursor: pointer; transition: border-color 0.15s ease;">
+        <option value="">ALL NEIGHBORHOODS</option>
+      </select>
+    </div>
+    <div style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5); display: flex; justify-content: space-between;">
+      <span>Source points:</span>
+      <span id="source-points-count" style="color: #00ffff; font-weight: bold;">0</span>
+    </div>
+  </div>
+
+  <!-- Time Slider Controls -->
+  <div class="panel" id="slider-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div class="panel-header" id="slider-label" style="margin: 0; font-size: 12px;">TIME WINDOW</div>
+      <div style="font-size: 10px; color: rgba(255,255,255,0.4);" id="min-points-indicator">Threshold: 2 pts/cell</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <button id="play-button">▶</button>
+      <input type="range" id="time-slider" min="0" max="0" value="0">
+    </div>
+  </div>
+
+  <script>
+    // --- Configuration & Constants ---
+    const BUCKETS = [
+      { name: "Encampments", matches: ["encampment", "homeless"], weight: 1.0, color: [255, 64, 200] },
+      { name: "Human Waste", matches: [], weight: 0.9, color: [150, 95, 45] },
+      { name: "Street Cleaning", matches: ["clean", "litter", "dump"], weight: 0.8, color: [255, 96, 96] },
+      { name: "Graffiti", matches: ["graffiti"], weight: 0.6, color: [64, 220, 210] },
+      { name: "Parking & Vehicles", matches: ["vehicle", "parking", "tow"], weight: 0.7, color: [240, 190, 60] },
+      { name: "Noise", matches: ["noise"], weight: 0.5, color: [170, 110, 255] },
+      { name: "Trees & Greenery", matches: ["tree", "landscap"], weight: 0.4, color: [110, 210, 120] },
+      { name: "Blended mix", matches: [], weight: 0.3, color: [120, 130, 160] }
+    ];
+
+    const MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+    // --- State variables ---
+    let binnedCells = {};
+    const allDaysSet = new Set();
+    let sortedDays = [];
+    let masterCells = [];
+    let globalThreshold = 2;
+    let mapInstance = null;
+    const markerPool = []; // pool of 15 markers
+    let playInterval = null;
+    let deckgl = null;
+    // Filters state
+    const enabledBuckets = new Set(BUCKETS.map(b => b.name));
+    let selectedNeighborhood = null;
+    let filterRev = 0;
+    // Helper: bucket match priority
+    function getBucket(serviceName, serviceDetails) {
+      const lowerDetails = (serviceDetails || "").toLowerCase();
+      if (lowerDetails.includes("human_waste") || lowerDetails.includes("urine")) {
+        return BUCKETS.find(b => b.name === "Human Waste");
+      }
+      const lower = (serviceName || "").toLowerCase();
+      for (let i = 0; i < BUCKETS.length - 1; i++) {
+        const bucket = BUCKETS[i];
+        if (bucket.name === "Human Waste") continue;
+        if (bucket.matches.some(m => lower.includes(m))) {
+          return bucket;
+        }
+      }
+      return BUCKETS[BUCKETS.length - 1];
+    }
+
+    // Helper: deterministic color jitter based on cellKey string
+    function getJitter(key) {
+      let hash = 0;
+      for (let i = 0; i < key.length; i++) {
+        hash = key.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const val = (Math.abs(hash) % 100) / 100; // 0.0 to 1.0
+      return 0.9 + val * 0.2; // 0.9 to 1.1 (±10% brightness jitter)
+    }
+
+    // Helper: format YYYY-MM-DD into structured object
+    function formatDayMonthYear(dateStr) {
+      if (!dateStr) return { day: "", monthName: "", year: "" };
+      const parts = dateStr.split('-');
+      const year = parts[0];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const monthName = MONTH_NAMES[monthIdx];
+      return { day, monthName, year };
+    }
+    // Helper: title case strings
+    function toTitleCase(str) {
+      if (!str) return "";
+      return str.toLowerCase().split(/\s+/).map(word => {
+        if (!word) return "";
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }).join(' ');
+    }
+
+    // Helper: format trailing 30-day window label
+    function formatWindowLabel(windowDays) {
+      if (windowDays.length === 0) return "NO DATA";
+      const first = formatDayMonthYear(windowDays[0]);
+      const last = formatDayMonthYear(windowDays[windowDays.length - 1]);
+      if (windowDays.length === 1) {
+        return `${first.day} ${first.monthName} ${first.year}`;
+      }
+      if (first.year === last.year) {
+        if (first.monthName === last.monthName) {
+          return `${first.day} – ${last.day} ${first.monthName} ${first.year}`;
+        } else {
+          return `${first.day} ${first.monthName} – ${last.day} ${last.monthName} ${first.year}`;
+        }
+      } else {
+        return `${first.day} ${first.monthName} ${first.year} – ${last.day} ${last.monthName} ${last.year}`;
+      }
+    }
+
+    function updateLegendUI() {
+      const container = document.getElementById('legend-items');
+      container.innerHTML = BUCKETS.map(b => {
+        const isEnabled = enabledBuckets.has(b.name);
+        const colorHex = `rgb(${b.color.join(',')})`;
+        const rowOpacity = isEnabled ? 1.0 : 0.35;
+        const fontStyle = isEnabled ? '' : 'text-decoration: line-through;';
+        const chipStyle = isEnabled 
+          ? `background-color: ${colorHex}; border: 1px solid rgba(255,255,255,0.15);`
+          : `background-color: rgba(${b.color.join(',')}, 0.15); border: 1px solid rgba(255,255,255,0.05); filter: grayscale(100%);`;
+        return `
+          <div class="legend-row" data-bucket="${b.name}" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 11px; cursor: pointer; opacity: ${rowOpacity}; transition: opacity 0.15s ease;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="width: 12px; height: 12px; border-radius: 2px; ${chipStyle}"></div>
+              <span style="color: rgba(255,255,255,0.85); ${fontStyle}">${b.name}</span>
+            </div>
+            <span style="color: rgba(255,255,255,0.4); font-family: monospace; font-size: 10px;">×${b.weight.toFixed(1)}</span>
+          </div>
+        `;
+      }).join('');
+      // Add click handlers
+      container.querySelectorAll('.legend-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const name = row.getAttribute('data-bucket');
+          if (enabledBuckets.has(name)) {
+            enabledBuckets.delete(name);
+          } else {
+            enabledBuckets.add(name);
+          }
+          updateLegendUI();
+          filterRev++;
+          renderActiveFrame();
+        });
+      });
+    }
+    // Initialize the legend UI component
+    function initLegendUI() {
+      const resetBtn = document.getElementById('reset-buckets-btn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          BUCKETS.forEach(b => enabledBuckets.add(b.name));
+          updateLegendUI();
+          filterRev++;
+          renderActiveFrame();
+        });
+      }
+      const select = document.getElementById('nbhd-filter');
+      if (select) {
+        select.addEventListener('change', (e) => {
+          selectedNeighborhood = e.target.value || null;
+          filterRev++;
+          renderActiveFrame();
+        });
+      }
+      updateLegendUI();
+    }
+
+    // Initialize deck.gl & MapLibre map
+    // Initialize deck.gl & MapLibre map
+    function initMap() {
+      const lightingEffect = new deck.LightingEffect({
+        ambient: new deck.AmbientLight({ color: [255, 255, 255], intensity: 1.4 }),
+        dir: new deck.DirectionalLight({ color: [255, 255, 255], intensity: 1.0, direction: [-1, -2, -1.5] })
+      });
+      deckgl = new deck.DeckGL({
+        effects: [lightingEffect],
+        container: 'map',
+        map: maplibregl,
+        mapStyle: 'https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json',
+        initialViewState: {
+          longitude: -122.435,
+          latitude: 37.76,
+          zoom: 11.6,
+          pitch: 55,
+          bearing: -25
+        },
+        controller: true,
+        onLoad: () => {
+          mapInstance = deckgl.getMapboxMap();
+          if (mapInstance) {
+            initMarkerPool();
+            if (mapInstance.isStyleLoaded()) {
+              fetchData();
+            } else {
+              mapInstance.once('style.load', fetchData);
+            }
+          } else {
+            // Fallback if mapInstance is not immediate
+            setTimeout(() => {
+              mapInstance = deckgl.getMapboxMap();
+              initMarkerPool();
+              fetchData();
+            }, 200);
+          }
+        },
+        getTooltip: ({object}) => {
+          if (!object || object.totalPoints === 0) return null;
+          const { neighborhood, totalPoints, counts } = object;
+          
+          const breakdownHtml = BUCKETS.map(b => {
+            if (!enabledBuckets.has(b.name)) return '';
+            const count = counts[b.name] || 0;
+            if (count === 0) return '';
+            const colorHex = `rgb(${b.color.join(',')})`;
+            return `
+              <div style="display: flex; justify-content: space-between; gap: 16px; font-size: 10px; margin-top: 3px;">
+                <span style="color: ${colorHex}; font-weight: bold;">${b.name}</span>
+                <span style="color: #ffffff;">${count}</span>
+              </div>
+            `;
+          }).join('');
+          
+          return {
+            html: `
+              <div style="font-family: 'JetBrains Mono', monospace; background: rgba(8, 10, 16, 0.95); border: 1px solid rgba(255, 255, 255, 0.15); padding: 10px 14px; border-radius: 4px; color: #ffffff; pointer-events: none; min-width: 190px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                <div style="font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.15); padding-bottom: 4px; margin-bottom: 6px; color: #00ffff; font-size: 11px; font-variant: small-caps; letter-spacing: 0.5px;">
+                  ${neighborhood || 'Unknown Neighborhood'}
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 6px; font-weight: bold; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 4px;">
+                  <span>TOTAL POINTS</span>
+                  <span>${totalPoints}</span>
+                </div>
+                ${breakdownHtml}
+              </div>
+            `,
+            style: {
+              background: 'transparent',
+              border: 'none',
+              padding: '0'
+            }
+          };
+        }
+      });
+    }
+
+    // Parallel fetch SF 311 from Socrata
+    async function fetchData() {
+      const statusEl = document.getElementById('loading-status');
+      const detailsEl = document.getElementById('loading-details');
+      const overlayEl = document.getElementById('loading-overlay');
+      
+      try {
+        statusEl.textContent = 'PULLING 311 SIGNAL…';
+        detailsEl.textContent = 'Connecting to Socrata API and requesting 150,000 records in parallel...';
+        const baseUrl = "https://data.sfgov.org/resource/vw6y-z8j6.json";
+        const query = "?$select=service_name,service_details,requested_datetime,lat,long,neighborhoods_sffind_boundaries" +
+                      "&$where=requested_datetime > '2025-06-01T00:00:00' AND lat IS NOT NULL" +
+                      "&$order=requested_datetime DESC" +
+                      "&$limit=50000";
+                      
+        const urls = [
+          `${baseUrl}${query}&$offset=0`,
+          `${baseUrl}${query}&$offset=50000`,
+          `${baseUrl}${query}&$offset=100000`
+        ];
+        
+        const startTime = performance.now();
+        const pages = await Promise.all(urls.map(async (url, idx) => {
+          const res = await fetch(url);
+          if (!res.ok) {
+            throw new Error(`Request page ${idx + 1} failed with HTTP ${res.status}`);
+          }
+          return await res.json();
+        }));
+        
+        const rawRows = pages.flat();
+        const fetchTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        
+        detailsEl.textContent = `Retrieved ${rawRows.length} rows in ${fetchTime}s. Parsing data structures...`;
+        
+        processData(rawRows);
+        
+        // Hide overlay smoothly
+        overlayEl.style.opacity = '0';
+        setTimeout(() => {
+          overlayEl.style.display = 'none';
+        }, 500);
+        
+      } catch (err) {
+        console.error("Data loading error:", err);
+        statusEl.innerHTML = '<span style="color: #ff6060;">SIGNAL FAILURE</span>';
+        detailsEl.innerHTML = `
+          <div style="margin-top: 15px; font-size: 12px; color: rgba(255,255,255,0.8); line-height: 1.6; text-align: center; max-width: 500px;">
+            Failed to download live 311 request streams. Error: <strong>${err.message}</strong><br><br>
+            Please check your network settings. The basemap style remains functional.
+          </div>
+          <button onclick="document.getElementById('loading-overlay').style.display='none'" style="margin-top: 20px; background: rgba(0, 255, 255, 0.1); border: 1px solid rgba(0, 255, 255, 0.4); color: #00ffff; font-family: inherit; font-size: 11px; padding: 6px 14px; cursor: pointer; border-radius: 4px; font-variant: small-caps; letter-spacing: 1px;">
+            Dismiss & Inspect Base Map
+          </button>
+        `;
+      }
+    }
+
+    // Defensive parsing & binning
+    // Defensive parsing & binning
+    function processData(rows) {
+      const S = 0.0009; // grid scale ~80m
+      
+      rows.forEach(row => {
+        // Coordinate verification
+        const lat = parseFloat(row.lat);
+        const lng = parseFloat(row.long);
+        if (isNaN(lat) || isNaN(lng)) return;
+        if (lat < 37.6 || lat > 37.9 || lng < -122.6 || lng > -122.3) return;
+        
+        // Neighborhood validation
+        const neighborhoodRaw = row.neighborhoods_sffind_boundaries;
+        if (!neighborhoodRaw) return;
+        const neighborhood = neighborhoodRaw.trim().toUpperCase();
+        
+        // Day structure (YYYY-MM-DD)
+        const dateStr = row.requested_datetime;
+        if (!dateStr || dateStr.length < 10) return;
+        const dayStr = dateStr.substring(0, 10); // "YYYY-MM-DD"
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dayStr)) return;
+        
+        allDaysSet.add(dayStr);
+        
+        // Category resolution
+        const bucket = getBucket(row.service_name, row.service_details);
+        
+        // Compute grid cell bounds
+        const colIdx = Math.floor(lng / S);
+        const rowIdx = Math.floor(lat / S);
+        const cellKey = `${colIdx}_${rowIdx}`;
+        
+        if (!binnedCells[cellKey]) {
+          binnedCells[cellKey] = {
+            key: cellKey,
+            lng: (colIdx + 0.5) * S,
+            lat: (rowIdx + 0.5) * S,
+            days: {},
+            neighborhoods: {}
+          };
+        }
+        
+        const cell = binnedCells[cellKey];
+        cell.neighborhoods[neighborhood] = (cell.neighborhoods[neighborhood] || 0) + 1;
+        
+        if (!cell.days[dayStr]) {
+          cell.days[dayStr] = {};
+          BUCKETS.forEach(b => {
+            cell.days[dayStr][b.name] = 0;
+          });
+        }
+        cell.days[dayStr][bucket.name]++;
+      });
+      
+      // Determine neighborhood majority vote for each cell
+      for (const cellKey in binnedCells) {
+        const cell = binnedCells[cellKey];
+        let maxVote = -1;
+        let chosenN = "";
+        for (const n in cell.neighborhoods) {
+          if (cell.neighborhoods[n] > maxVote) {
+            maxVote = cell.neighborhoods[n];
+            chosenN = n;
+          }
+        }
+        cell.neighborhood = chosenN;
+      }
+      
+      buildTimeSlider();
+    }
+
+    // Set up slider range from sorted unique days, filling missing calendar days
+    function buildTimeSlider() {
+      const presentDays = Array.from(allDaysSet).sort();
+      if (presentDays.length === 0) {
+        sortedDays = ["2026-05-01", "2026-05-02", "2026-05-03"];
+      } else {
+        const minDate = new Date(presentDays[0] + 'T00:00:00');
+        const maxDate = new Date(presentDays[presentDays.length - 1] + 'T00:00:00');
+        
+        sortedDays = [];
+        let curr = new Date(minDate);
+        while (curr <= maxDate) {
+          const yyyy = curr.getFullYear();
+          const mm = String(curr.getMonth() + 1).padStart(2, '0');
+          const dd = String(curr.getDate()).padStart(2, '0');
+          sortedDays.push(`${yyyy}-${mm}-${dd}`);
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
+      
+      const slider = document.getElementById('time-slider');
+      slider.min = 0;
+      slider.max = sortedDays.length - 1;
+      slider.value = sortedDays.length - 1; // Latest day by default
+      
+      buildMasterCellList();
+      
+      // Initial render pass
+      renderActiveFrame();
+      
+      slider.addEventListener('input', () => {
+        if (playInterval) {
+          stopAutoplay();
+        }
+        renderActiveFrame();
+      });
+    }
+
+    // Build stable master cell list and compute threshold
+    function buildMasterCellList() {
+      let threshold = 2;
+      while (true) {
+        masterCells = [];
+        for (const key in binnedCells) {
+          const cell = binnedCells[key];
+          let totalPoints = 0;
+          for (const d in cell.days) {
+            for (const bName in cell.days[d]) {
+              totalPoints += cell.days[d][bName];
+            }
+          }
+          if (totalPoints >= threshold) {
+            masterCells.push({
+              key: cell.key,
+              lng: cell.lng,
+              lat: cell.lat,
+              days: cell.days,
+              neighborhood: cell.neighborhood
+            });
+          }
+        }
+        
+        if (masterCells.length <= 25000 || threshold > 12) {
+          break;
+        }
+        threshold++;
+      }
+      globalThreshold = threshold;
+      initNeighborhoodFilter();
+    }
+    function initNeighborhoodFilter() {
+      const nbhdSet = new Set();
+      masterCells.forEach(cell => {
+        if (cell.neighborhood) {
+          nbhdSet.add(cell.neighborhood);
+        }
+      });
+      const sortedNbhds = Array.from(nbhdSet).sort();
+      const select = document.getElementById('nbhd-filter');
+      const currentSelection = select.value || "";
+      select.innerHTML = '<option value="">ALL NEIGHBORHOODS</option>';
+      sortedNbhds.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = toTitleCase(n);
+        select.appendChild(opt);
+      });
+      if (sortedNbhds.includes(currentSelection)) {
+        select.value = currentSelection;
+        selectedNeighborhood = currentSelection;
+      } else {
+        select.value = "";
+        selectedNeighborhood = null;
+      }
+    }
+
+    // Get current 30-day trailing day list
+    function getActiveDaysWindow() {
+      const slider = document.getElementById('time-slider');
+      const idx = parseInt(slider.value, 10);
+      const windowDays = [];
+      const windowSize = 30;
+      for (let offset = windowSize - 1; offset >= 0; offset--) {
+        const i = idx - offset;
+        if (i >= 0 && i < sortedDays.length) {
+          windowDays.push(sortedDays[i]);
+        }
+      }
+      return windowDays;
+    }
+
+    // Dynamically query and build active cell aggregation for window
+    // Dynamically query and build active cell aggregation for window
+    function computeActiveCells(windowDays) {
+      const activeCells = [];
+      const windowDaysSet = new Set(windowDays);
+      masterCells.forEach(cell => {
+        const counts = {};
+        let totalPoints = 0;
+        BUCKETS.forEach(b => counts[b.name] = 0);
+        const matchesNeighborhood = !selectedNeighborhood || cell.neighborhood === selectedNeighborhood;
+        if (matchesNeighborhood) {
+          for (const d in cell.days) {
+            if (windowDaysSet.has(d)) {
+              for (const bName in cell.days[d]) {
+                if (!enabledBuckets.has(bName)) continue;
+                const count = cell.days[d][bName];
+                counts[bName] += count;
+                totalPoints += count;
+              }
+            }
+          }
+        }
+        let weightedValue = 0;
+        let leadBucket = BUCKETS[BUCKETS.length - 1]; // Blended mix fallback
+        if (totalPoints > 0) {
+          let maxWeightedCount = -1;
+          BUCKETS.forEach(b => {
+            if (!enabledBuckets.has(b.name)) return;
+            const count = counts[b.name];
+            const weighted = count * b.weight;
+            weightedValue += weighted;
+            if (weighted > maxWeightedCount) {
+              maxWeightedCount = weighted;
+              leadBucket = b;
+            }
+          });
+        }
+        activeCells.push({
+          key: cell.key,
+          lng: cell.lng,
+          lat: cell.lat,
+          counts: counts,
+          totalPoints: totalPoints,
+          weightedValue: weightedValue,
+          leadBucket: leadBucket,
+          neighborhood: cell.neighborhood
+        });
+      });
+      return activeCells;
+    }
+
+    // Refresh display
+    function renderActiveFrame() {
+      const windowDays = getActiveDaysWindow();
+      
+      // Update Title / Labels
+      document.getElementById('slider-label').textContent = formatWindowLabel(windowDays);
+      
+      // Aggregate grid counts
+      const activeCells = computeActiveCells(windowDays);
+      
+      // Update indicators
+      document.getElementById('min-points-indicator').textContent = `Threshold: ${globalThreshold} pts/cell`;
+      
+      let sumPoints = 0;
+      activeCells.forEach(c => sumPoints += c.totalPoints);
+      document.getElementById('source-points-count').textContent = sumPoints.toLocaleString();
+      
+      // Define column layer
+      const columnLayer = new deck.ColumnLayer({
+        id: 'signal-towers',
+        data: activeCells,
+        diskResolution: 20,
+        flatShading: false,
+        material: { ambient: 0.55, diffuse: 0.5, shininess: 40, specularColor: [0.2, 0.2, 0.2] },
+        radius: 38,
+        extruded: true,
+        getPosition: d => [d.lng, d.lat],
+        getFillColor: d => {
+          const jitter = getJitter(d.key);
+          const c = d.leadBucket.color;
+          const alpha = d.totalPoints > 0 ? 220 : 0;
+          return [
+            Math.min(255, Math.max(0, Math.round(c[0] * jitter))),
+            Math.min(255, Math.max(0, Math.round(c[1] * jitter))),
+            Math.min(255, Math.max(0, Math.round(c[2] * jitter))),
+            alpha
+          ];
+        },
+        getElevation: d => d.weightedValue * 14,
+        elevationScale: 1,
+        pickable: true,
+        updateTriggers: {
+          getFillColor: [windowDays[0], windowDays[windowDays.length - 1], filterRev],
+          getElevation: [windowDays[0], windowDays[windowDays.length - 1], filterRev]
+        },
+        transitions: {
+          getElevation: 250,
+          getFillColor: 250
+        }
+      });
+      
+      deckgl.setProps({
+        layers: [columnLayer]
+      });
+      
+      // Refresh MapLibre text overlay markers
+      renderNeighborhoodMarkers(activeCells);
+    }
+
+    // Pool initialization for 15 markers
+    function initMarkerPool() {
+      const mapContainer = document.getElementById('map');
+      for (let i = 0; i < 15; i++) {
+        const el = document.createElement('div');
+        el.className = 'neighborhood-label';
+        el.style.display = 'none';
+        
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([0, 0])
+          .addTo(mapInstance);
+          
+        mapContainer.appendChild(el);
+        el.style.zIndex = '15';
+        
+        markerPool.push({
+          marker: marker,
+          element: el
+        });
+      }
+    }
+
+    // Render neighborhood HTML label markers from pool
+    function renderNeighborhoodMarkers(activeCells) {
+      if (!mapInstance || markerPool.length === 0) return;
+      
+      const stats = {};
+      activeCells.forEach(cell => {
+        if (cell.totalPoints === 0) return;
+        const n = cell.neighborhood;
+        if (!n) return;
+        
+        if (!stats[n]) {
+          stats[n] = {
+            name: n,
+            totalWeighted: 0,
+            sumLng: 0,
+            sumLat: 0,
+            count: 0,
+            counts: {}
+          };
+          BUCKETS.forEach(b => stats[n].counts[b.name] = 0);
+        }
+        
+        stats[n].totalWeighted += cell.weightedValue;
+        stats[n].sumLng += cell.lng;
+        stats[n].sumLat += cell.lat;
+        stats[n].count++;
+        BUCKETS.forEach(b => {
+          stats[n].counts[b.name] += cell.counts[b.name];
+        });
+      });
+      
+      const topN = Object.values(stats)
+        .sort((a, b) => b.totalWeighted - a.totalWeighted)
+        .slice(0, 15);
+        
+      for (let i = 0; i < 15; i++) {
+        const poolItem = markerPool[i];
+        if (i < topN.length) {
+          const n = topN[i];
+          const meanLng = n.sumLng / n.count;
+          const meanLat = n.sumLat / n.count;
+          
+          let leadBucket = BUCKETS[BUCKETS.length - 1];
+          let maxWeighted = -1;
+          BUCKETS.forEach(b => {
+            if (!enabledBuckets.has(b.name)) return;
+            const weighted = n.counts[b.name] * b.weight;
+            if (weighted > maxWeighted) {
+              maxWeighted = weighted;
+              leadBucket = b;
+            }
+          });
+          
+          poolItem.marker.setLngLat([meanLng, meanLat]);
+          
+          const nameHtml = `<div class="neighborhood-name">${toTitleCase(n.name)}</div>`;
+          const signalColor = `rgb(${leadBucket.color.join(',')})`;
+          const signalHtml = `<div class="neighborhood-signal" style="color: ${signalColor}">${leadBucket.name.toUpperCase()}</div>`;
+          const newInner = nameHtml + signalHtml;
+          
+          if (poolItem.element.innerHTML !== newInner) {
+            poolItem.element.innerHTML = newInner;
+          }
+          if (poolItem.element.style.display === 'none') {
+            poolItem.element.style.display = 'block';
+          }
+        } else {
+          if (poolItem.element.style.display !== 'none') {
+            poolItem.element.style.display = 'none';
+          }
+        }
+      }
+    }
+
+    // Playback loop controllers
+    function stopAutoplay() {
+      if (playInterval) {
+        clearInterval(playInterval);
+        playInterval = null;
+      }
+      document.getElementById('play-button').textContent = '▶';
+    }
+
+    function startAutoplay() {
+      const slider = document.getElementById('time-slider');
+      document.getElementById('play-button').textContent = '⏸';
+      
+      playInterval = setInterval(() => {
+        let val = parseInt(slider.value, 10);
+        val++;
+        if (val >= sortedDays.length) {
+          val = 0; // Loop around
+        }
+        slider.value = val;
+        renderActiveFrame();
+      }, 120);
+    }
+
+    document.getElementById('play-button').addEventListener('click', () => {
+      if (playInterval) {
+        stopAutoplay();
+      } else {
+        startAutoplay();
+      }
+    });
+
+    // --- Init ---
+    initLegendUI();
+    initMap();
+
+  </script>
+</body>
+</html>
